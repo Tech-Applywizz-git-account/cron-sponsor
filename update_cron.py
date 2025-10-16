@@ -2,6 +2,9 @@ import os
 from sqlalchemy import create_engine
 import pandas as pd
 from supabase import create_client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     conn_str = os.environ.get("PSQL_KEY")
@@ -30,12 +33,18 @@ except Exception as e:
 
 # Exception handling for fetching max upload date
 try:
-    response = supabase.table("karmafy_job").select("MAX(uploadDate)").execute()
+    response = (
+        supabase.table("job_jobrole_sponsored")
+        .select("upload_date")
+        .order("upload_date", desc=True)
+        .limit(1)
+        .execute()
+    )
 
     if not response.data:
         raise ValueError("No data returned for max upload date.")
 
-    max_upload_date = response.data[0]["max"]
+    max_upload_date = response.data[0]["upload_date"]
     print(f"Max upload date: {max_upload_date}")
 except Exception as e:
     print(f"Error fetching max upload date: {e}")
@@ -53,7 +62,7 @@ SELECT
     j."rawText" AS raw_text,
     j."datePosted" AS date_posted,
     j."yearsExpRequired" AS years_exp_required,
-    j."uploadDate" AS upload_date,
+    j."uploadDate" AS upload_date
 FROM "karmafy_job" j
 LEFT JOIN "karmafy_jobrole" jr
        ON j."roleId"::bigint = jr.id
