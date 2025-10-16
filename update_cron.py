@@ -552,16 +552,24 @@ except Exception as e:
 # Add visa sponsorship detection
 df = add_visa_sponsorship_column(df)
 
-df_sponsored = df[df["sponsored_jobs"] == "Yes"]
+df_sponsored = df[df["sponsored_job"] == "Yes"]
 
 print(df.columns)
+
+df_sponsored["upload_date"] = df["upload_date"].apply(
+    lambda x: x.isoformat() if pd.notna(x) else None
+)
+df_sponsored["date_posted"] = df["date_posted"].apply(
+    lambda x: x.isoformat() if pd.notna(x) else None
+)
 
 try:
     table_name = "job_jobrole_sponsored"
     data_to_insert = df_sponsored.to_dict(orient="records")
 
+    # Convert Timestamp columns to ISO format strings
     response = supabase.table(table_name).insert(data_to_insert).execute()
-    print(f"Insert response: {response}")
+    print(f"Insert response: {len(response.data)} rows inserted")
 except Exception as e:
     print(f"Error inserting data to Supabase: {e}")
     exit()
