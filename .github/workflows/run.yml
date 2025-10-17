@@ -24,4 +24,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run update_cron.py
+        env:
+          PSQL_KEY: ${{ secrets.PSQL_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: python update_cron.py
