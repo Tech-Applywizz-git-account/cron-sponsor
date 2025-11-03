@@ -36,6 +36,7 @@ try:
     response = (
         supabase.table("job_jobrole_sponsored")
         .select("upload_date")
+        .not_.is_("upload_date", None)
         .order("upload_date", desc=True)
         .limit(1)
         .execute()
@@ -59,7 +60,6 @@ SELECT
     j.location,
     j.url,
     j.description,
-    j."rawText" AS raw_text,
     j."datePosted" AS date_posted,
     j."yearsExpRequired" AS years_exp_required,
     j."uploadDate" AS upload_date

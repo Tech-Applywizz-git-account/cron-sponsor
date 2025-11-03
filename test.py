@@ -1,71 +1,37 @@
-import pandas as pd
-from datetime import datetime
-import json
+import os
+from supabase import create_client
+from dotenv import load_dotenv
 
-# Sample data with a Timestamp (datetime) field
-data = {
-    "job_role_name": ["Software Engineer"],
-    "title": ["Senior Developer"],
-    "company": ["Tech Corp"],
-    "location": ["New York"],
-    "url": ["https://example.com"],
-    "description": ["A senior role in software engineering."],
-    "raw_text": ["Some raw text here."],
-    "date_posted": [datetime(2025, 10, 15, 5, 55, 4, 657699)],  # Timestamp object
-    "upload_date": [datetime(2025, 10, 15, 5, 55, 4, 657699)],  # Timestamp object
-    "sponsored_job": [True],
-}
+load_dotenv()
 
-# Create a DataFrame
-df = pd.DataFrame(data)
+try:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
 
+    if not url or not key:
+        raise ValueError("Supabase URL or KEY is missing.")
 
-# Function to check if Timestamp can be serialized into JSON
-def check_serializability(df):
-    try:
-        # Attempt to convert Timestamp columns to ISO format strings
-        df["upload_date"] = df["upload_date"].apply(
-            lambda x: x.isoformat() if pd.notna(x) else None
-        )
-        df["date_posted"] = df["date_posted"].apply(
-            lambda x: x.isoformat() if pd.notna(x) else None
-        )
+    supabase = create_client(url, key)
+    print("Successfully connected to Supabase!")
+except Exception as e:
+    print(f"Error connecting to Supabase: {e}")
+    exit()  # Exit if connection to Supabase fails
 
-        # Try serializing the DataFrame to JSON format
-        data_to_insert = df.to_dict(orient="records")
-        json_data = json.dumps(
-            data_to_insert
-        )  # This will raise an error if it's not serializable
+try:
+    response = (
+        supabase.table("job_jobrole_sponsored")
+        .select("upload_date")
+        .not_.is_("upload_date", None)
+        .order("upload_date", desc=True)
+        .limit(1)
+        .execute()
+    )
 
-        print("Data successfully serialized into JSON!")
-        return json_data
+    if not response.data:
+        raise ValueError("No data returned for max upload date.")
 
-    except TypeError as e:
-        print(f"Error serializing data: {e}")
-        return None
-
-
-# Run the check until data becomes serializable
-serializable = False
-attempts = 0
-while not serializable:
-    attempts += 1
-    print(f"Attempt {attempts}...")
-
-    # Try to serialize the data
-    result = check_serializability(df)
-
-    if result:
-        serializable = True
-    else:
-        # If serialization failed, convert to Unix timestamp and try again
-        print("Converting timestamps to Unix timestamps and retrying...")
-        df["upload_date"] = df["upload_date"].apply(
-            lambda x: int(x.timestamp()) if pd.notna(x) else None
-        )
-        df["date_posted"] = df["date_posted"].apply(
-            lambda x: int(x.timestamp()) if pd.notna(x) else None
-        )
-
-print("Final JSON data (serialized):")
-print(result)
+    max_upload_date = response.data[0]["upload_date"]
+    print(f"Max upload date: {max_upload_date}")
+except Exception as e:
+    print(f"Error fetching max upload date: {e}")
+    exit()  # Exit if fetching max upload date fails
