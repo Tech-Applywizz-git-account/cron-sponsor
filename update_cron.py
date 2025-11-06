@@ -496,6 +496,24 @@ def detect_visa_sponsorship(text):
         "absolutely no sponsorship",
         "sponsorship is not an option",
         "visa sponsorship explicitly not available",
+        "no immigration or work visa",
+        "not provide employment sponsorship",
+        "does not intend to hire experienced or entry level job seekers who will need, now or in the future, Entegris sponsorship through H-1B",
+        "unable to provide work visa sponsorship",
+        "not eligible for immigration sponsorship",
+        "visa sponsorship provided no",
+        "h-1b lottery",
+        "visa sponsorship is unavailable",
+        "who need sponsorship for work authorization now or in the future, are not eligible for hire",
+        "not eligible for work authorization sponsorship",
+        "does not provide work visa sponsorship",
+        "does not provide immigration-related sponsorship",
+        "do not apply if you require visa sponsorship",
+        "this role is not a sponsorship eligible role",
+        "work lawfully in the u.s.",
+        "applicants must have a valid u.s. work authorization",
+        "not eligible for immigration sponsorship",
+        "we do not provide immigration sponsorship"
     ]
     # First check for negative indicators
     for neg_keyword in negative_keywords:
