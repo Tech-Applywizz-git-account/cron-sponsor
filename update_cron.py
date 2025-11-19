@@ -37,8 +37,8 @@ except Exception as e:
 # AWS Bedrock Configuration
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.environ.get("AWS_REGION")
-BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID")
+AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
 
 # System instruction for LLM
 SYSTEM_INSTRUCTION = (
@@ -314,7 +314,7 @@ def call_bedrock_llm(bedrock_client, prompt, model_id=None):
                 else:
                     # Empty array
                     return "No"
-            
+
             last = out
         except Exception as e:
             if i == attempts - 1:
