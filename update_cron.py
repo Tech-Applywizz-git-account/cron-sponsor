@@ -3,6 +3,9 @@ from sqlalchemy import create_engine
 import pandas as pd
 from supabase import create_client
 from dotenv import load_dotenv
+import boto3
+import json
+import re
 
 load_dotenv()
 
@@ -30,6 +33,31 @@ try:
 except Exception as e:
     print(f"Error connecting to Supabase: {e}")
     exit()  # Exit if connection to Supabase fails
+
+# AWS Bedrock Configuration
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
+AWS_REGION = os.environ.get("AWS_REGION")
+BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID")
+
+# System instruction for LLM
+SYSTEM_INSTRUCTION = (
+    "INSTRUCTION: You are a strict JSON generator. Output ONLY a JSON array of objects as specified. "
+    "No explanations, no markdown, no prefixes, no suffix text. If unsure, return []."
+)
+
+# Initialize AWS Bedrock client
+try:
+    bedrock_client = boto3.client(
+        'bedrock-runtime',
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        region_name=AWS_REGION
+    )
+    print(f"Successfully connected to AWS Bedrock! (Region: {AWS_REGION}, Model: {BEDROCK_MODEL_ID})")
+except Exception as e:
+    print(f"Error connecting to AWS Bedrock: {e}")
+    exit()  # Exit if connection to AWS Bedrock fails
 
 # Exception handling for fetching max upload date
 try:
@@ -71,483 +99,270 @@ WHERE j."uploadDate" > '{max_upload_date}'
 """
 
 
-def detect_visa_sponsorship(text):
-    if pd.isna(text) or text == "":
-        return "No"
+def normalize_text(x):
+    """Normalize text for processing."""
+    if pd.isna(x):
+        return ""
+    s = str(x)
+    s = s.replace('\r', ' ').replace('\n', ' ')
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
 
-    # Convert to lowercase for case-insensitive matching
-    text_lower = str(text).lower()
-
-    # Keywords that indicate visa sponsorship
-    visa_keywords = [
-        # General sponsorship keywords
-        "sponsorship available",
-        "visa sponsorship available",
-        "h-1b sponsorship available",
-        "will sponsor",
-        "sponsorship provided",
-        "sponsorship offered",
-        "sponsorship opportunities",
-        # Open to sponsoring
-        "open to sponsoring",
-        "employer will sponsor visas",
-        "company sponsorship available",
-        "visa support provided",
-        "eligible for visa sponsorship",
-        # Additional visa sponsorship keywords
-        "may provide visa sponsorship for certain positions",
-        "visa sponsorship available for this position",
-        "we do sponsor visas",
-        "employment sponsorship offered: yes",
-        "all visa requests will be discussed on a case by case basis to determine if we can sponsor",
-        "visa sponsorship and relocation stipend to bring you to sf, if possible",
-        "will consider sponsoring a new qualified applicant for employment authorization for this position",
-        "visa sponsorship decisions will be made on a case-by-case basis",
-        "sponsorship available",
-        "visa sponsorship may be offered for this role",
-        "may offer employer visa sponsorship to applicants",
-        "we are open to sponsoring candidates currently in the u.s. who need to transfer their active h1-b visa",
-        # Extended visa sponsorship keywords
-        "sponsorship through the h-1b lottery",
-        "visa sponsorship: we do sponsor visas! however, we aren't able to successfully sponsor visas for every role and every candidate. but if we make you an offer, we will make every reasonable effort to get you a visa, and we retain an immigration lawyer to help with this",
-        "work visas - all visa requests will be discussed on a case by case basis to determine if we can sponsor",
-        "visa sponsorship to bring you",
-        "sponsorship: we are open to sponsoring candidates currently in the u.s. who need to transfer their active h1-b visa",
-        "supports visa sponsorship, sponsorship opportunities may be limited to certain roles and skills",
-        "visa sponsorship: we do sponsor visas! however, we aren't able to successfully sponsor visas for every role and every candidate",
-        "visa sponsorship is available for this position",
-        "we provide visa sponsorship for candidates selected for this role",
-        "will sponsor foreign nationals for work visas",
-        "visa sponsorship - available for those who would like to relocate to the us after being hired",
-        "visa sponsorship available",
-        "we will consider applicants requiring sponsorship for this opportunity",
-        "visa sponsorship & assistance: we support your visa process and guide you through all the paperwork",
-        "consideration for work authorization sponsorship",
-        "visa sponsorship - we offer visa sponsorship for eligible employees",
-        "visa sponsorship offered",
-        "our client will sponsor h1-b's",
-        "h1b sponsorship",
-        "visa sponsorship available: yes",
-        "sponsorship available: yes",
-        "occasionally offers work authorization sponsorship for critical need roles",
-        "work authorization sponsorship is available for this position",
-        "visa sponsorship: we are able to provide employment visa sponsorship for qualified candidates",
-        "f-1 visa sponsorship available",
-        "j-1 and f-1 visa sponsorship available",
-        "h-1b sponsorship available",
-        "tn visa sponsorship is available",
-        # AI-words
-        "willing to sponsor",
-        "able to sponsor",
-        "can sponsor",
-        "we sponsor",
-        "h1b visa sponsorship",
-        "h-1b visa sponsorship",
-        "h1-b sponsorship",
-        "opt sponsorship",
-        "opt extension sponsorship",
-        "stem opt sponsorship",
-        "cpt sponsorship",
-        "f1 opt sponsorship",
-        "f-1 opt sponsorship",
-        "green card sponsorship",
-        "green card sponsorship available",
-        "immigration sponsorship",
-        "immigration support",
-        "immigration assistance",
-        "work permit sponsorship",
-        "work authorization sponsorship available",
-        "visa transfer support",
-        "h1b transfer",
-        "h-1b transfer",
-        "e-3 visa sponsorship",
-        "l-1 visa sponsorship",
-        "o-1 visa sponsorship",
-        "tn visa sponsorship",
-        "tn status sponsorship",
-        "sponsor work visas",
-        "sponsors h1b",
-        "sponsors h-1b",
-        "visa sponsorship for qualified candidates",
-        "visa sponsorship for international candidates",
-        "open to visa sponsorship",
-        "provides visa sponsorship",
-        "offers visa sponsorship",
-        "visa sponsorship program",
-        "sponsorship on a case-by-case basis",
-        "may sponsor the right candidate",
-        "will sponsor qualified candidates",
-        "visa assistance available",
-        "relocation and visa support",
-        "visa sponsorship for exceptional candidates",
-        "h-1b cap-exempt sponsorship",
-        "cap-exempt h1b sponsorship",
-        "employment-based visa sponsorship",
-        "sponsorship for foreign nationals",
-        "we can sponsor your visa",
-        "company will sponsor",
-        "visa sponsorship considered",
-        "visa sponsorship possible",
-        "willing to provide sponsorship",
-        "able to provide sponsorship",
-        "sponsorship available for this role",
-        "visa sponsorship for the right fit",
-        "we handle visa sponsorship",
-        "full visa sponsorship support",
-        "comprehensive visa sponsorship",
-        "employer-sponsored work visa",
-        "visa petition support",
-        "will file for h-1b",
-        "gc sponsorship",
-        "perm sponsorship",
-        "sponsorship after probation",
-        "sponsorship after trial period",
-        # extra
-        "h1-b visa sponsorship",
-        "employment visa sponsorship",
-        "work visa sponsorship",
-        "temporary work visa",
-        "nonimmigrant visa",
-        "legal sponsorship",
-        "petition for visa",
-        "labor certification",
-        "prevailing wage",
-        "visa processing",
-        "immigration processing",
-        "sponsor h1b",
-        "sponsor h-1b",
-        "h1b cap",
-        "h-1b cap",
-        "h1b lottery",
-        "h-1b lottery",
-        "cap exempt",
-        "cap-exempt",
-        "h1b transfer sponsorship",
-        "h-1b transfer sponsorship",
-        "new h1b",
-        "new h-1b",
-        "consular processing",
-        "change of status",
-        "visa stamping",
-        "ds-2019",
-        "i-129",
-        "lca",
-        "labor condition application",
-        "immigration attorney",
-        "immigration lawyer",
-        "visa attorney",
-        "sponsorship for work authorization",
-        "ead sponsorship",
-        "stem extension",
-        "cap gap extension",
-        "h1b visa transfer",
-        "h-1b visa transfer",
-        "visa petition",
-        "immigration petition",
-        "sponsor employment",
-        "employment sponsorship",
-        "job sponsorship",
-        "professional visa",
-        "skilled worker visa",
-        "specialty occupation",
-        "specialty occupations",
-        "bachelor's degree requirement",
-        "degree requirement for visa",
-        "visa eligible position",
-        "sponsorship eligible",
-        "can sponsor visas",
-        "provides sponsorship",
-        "offers sponsorship",
-        "gives sponsorship",
-        "employer provides sponsorship",
-        "immigration benefits",
-        "relocation package includes visa",
-        "international relocation support",
-        "global mobility",
-        "talent mobility",
-        "immigration support services",
-        "visa and immigration assistance",
-        "work permit assistance",
-        "legal work status sponsorship",
-        "authorization sponsorship",
-        "foreign talent welcome",
-        "international hires welcome",
-        "global talent acquisition",
-        "visa for right candidate",
-        "immigration for talented professionals",
-        "sponsor for exceptional candidates",
-        "h1b candidates welcome",
-        "h-1b applicants welcome",
-        "accepting h1b applications",
-        "considering h1b transfers",
-        "open to h1b candidates",
-        "h1b friendly",
-        "h-1b friendly",
-        "visa friendly employer",
-        "sponsorship friendly",
-        "supports h1b visa",
-        "supports h-1b visa",
-        "h1b visa support",
-        "h-1b visa support",
-        "l1 visa sponsorship",
-        "l-1 visa sponsorship",
-        "e3 visa sponsorship",
-        "o1 visa sponsorship",
-        "j1 visa sponsorship",
-        "f1 visa sponsorship",
-        "h1b1 visa sponsorship",
-        "e1 visa sponsorship",
-        "e2 visa sponsorship",
+def create_visa_detection_prompt(job_id, title, description):
+    """Create a prompt for AWS Bedrock to determine visa sponsorship."""
+    # Combine all available text fields
+    text_fields = [
+        normalize_text(title),
+        normalize_text(description)
     ]
+    job_text = " ".join([field for field in text_fields if field])
+    
+    if not job_text.strip():
+        return None
+    
+    # Create job details JSON
+    job_details = [{
+        "jobId": job_id,
+        "title": title if title else "N/A",
+        "description": job_text
+    }]
+    
+    prompt = """You are an expert job screening AI specialized in identifying whether a job listing explicitly or implicitly offers valid work visa sponsorship.
 
-    # Check for negative indicators (jobs that explicitly don't sponsor)
-    negative_keywords = [
-        "sponsorship available no",
-        "no visa sponsorship",
-        "does not sponsor",
-        "will not sponsor",
-        "no h1b",
-        "no h-1b",
-        "no work visa",
-        "us citizens only",
-        "green card required",
-        "must have work authorization",
-        "no sponsorship",
-        "sponsorship not available",
-        "visa sponsorship available: not available",
-        "visa sponsorship available: no",
-        "not eligible without sponsorship",
-        "this role is not eligible for visa sponsorship or relocation assistance",
-        "this position is unable to provide work authorization sponsorship",
-        "candidates for this position must be authorized to work in the united states and not require work authorization sponsorship by our company for this position",
-        "this position is ineligible for visa sponsorship",
-        "this position is ineligible for employment visa sponsorship",
-        "this role is not eligible for visa sponsorship",
-        "employment sponsorship offered: no",
-        "this position is not eligible for visa sponsorship",
-        # AI-words
-        "cannot sponsor",
-        "unable to sponsor",
-        "will not provide sponsorship",
-        "does not provide sponsorship",
-        "no h1-b sponsorship",
-        "no h1b sponsorship",
-        "h1b not available",
-        "h-1b not available",
-        "must be authorized to work in the us",
-        "must be authorized to work in the united states",
-        "must be legally authorized to work",
-        "must be authorized to work without sponsorship",
-        "us work authorization required",
-        "valid us work authorization required",
-        "must have us work authorization",
-        "work authorization required",
-        "only us citizens",
-        "us citizens and green card holders only",
-        "us citizens and permanent residents only",
-        "permanent residents only",
-        "green card holders only",
-        "citizenship required",
-        "us citizenship required",
-        "must be a us citizen or permanent resident",
-        "citizen or green card holder",
-        "citizen or permanent resident",
-        "ead required",
-        "must have ead",
-        "employment authorization document required",
-        "gc or us citizen only",
-        "gc or citizen only",
-        "sponsorship is not available",
-        "we do not sponsor",
-        "we cannot sponsor",
-        "we are unable to sponsor",
-        "company does not sponsor",
-        "employer does not sponsor",
-        "not offering sponsorship",
-        "no sponsorship provided",
-        "no visa support",
-        "visa support not available",
-        "we do not provide visa sponsorship",
-        "sponsorship will not be provided",
-        "no immigration sponsorship",
-        "immigration sponsorship not available",
-        "must currently have work authorization",
-        "existing work authorization required",
-        "current us work authorization required",
-        "no opt sponsorship",
-        "no cpt sponsorship",
-        "not eligible for sponsorship",
-        "ineligible for sponsorship",
-        "does not offer sponsorship",
-        "unable to provide sponsorship",
-        "we cannot provide work authorization",
-        "authorized to work in us without sponsorship",
-        "must have unrestricted work authorization",
-        "unrestricted right to work in the us",
-        "no relocation or visa sponsorship",
-        "visa sponsorship is not offered",
-        "this position does not include visa sponsorship",
-        "not open to visa sponsorship",
-        "seeking candidates who do not require sponsorship",
-        "candidates must not require sponsorship",
-        "no third-party or visa sponsorship",
-        "must possess us work authorization",
-        "proof of eligibility to work required",
-        # extra
-        "no h1-b",
-        "no h1b visa",
-        "no h-1b visa",
-        "no work authorization sponsorship",
-        "not able to sponsor",
-        "sponsorship not provided",
-        "sponsorship not offered",
-        "no employment sponsorship",
-        "no job sponsorship",
-        "no immigration sponsorship",
-        "no legal sponsorship",
-        "visa sponsorship not provided",
-        "work visa not provided",
-        "must have current work authorization",
-        "must be authorized to work",
-        "employment authorization required",
-        "us employment authorization required",
-        "must have us work permit",
-        "us work permit required",
-        "permanent residency required",
-        "green card holder required",
-        "us person required",
-        "local candidates only",
-        "no relocation sponsorship",
-        "no visa assistance",
-        "no immigration assistance",
-        "no legal assistance for visa",
-        "not providing sponsorship",
-        "sponsorship unavailable",
-        "visa sponsorship unavailable",
-        "work authorization sponsorship not available",
-        "employment sponsorship not available",
-        "does not support h1b",
-        "does not support h-1b",
-        "h1b not supported",
-        "h-1b not supported",
-        "no h1b transfers",
-        "no h-1b transfers",
-        "not accepting h1b candidates",
-        "not considering h1b applications",
-        "h1b applicants not accepted",
-        "h-1b applicants not accepted",
-        "only us citizens or permanent residents",
-        "must be us citizen or permanent resident",
-        "no visa candidates",
-        "no foreign candidates",
-        "local hiring only",
-        "no international candidates",
-        "domestic candidates only",
-        "no sponsorship for this role",
-        "role does not offer sponsorship",
-        "position does not offer sponsorship",
-        "sponsorship is not available for this position",
-        "we do not sponsor visas",
-        "organization does not sponsor",
-        "no visa sponsorship available",
-        "no work visa sponsorship",
-        "no employment visa sponsorship",
-        "no temporary visa sponsorship",
-        "non-immigrant visa not sponsored",
-        "no non-immigrant visa sponsorship",
-        "must have existing work authorization",
-        "valid work authorization required",
-        "must possess work authorization",
-        "work authorization must be current",
-        "no new work authorization",
-        "no initial work authorization",
-        "not for opt candidates",
-        "no opt",
-        "no cpt",
-        "not accepting opt",
-        "not considering cpt",
-        "no stem opt",
-        "no practical training",
-        "must have work visa already",
-        "existing work visa required",
-        "transfer not available",
-        "no visa transfers",
-        "sponsorship: no",
-        "visa sponsorship: no",
-        "work authorization: must have",
-        "authorization: required",
-        "no l1 sponsorship",
-        "no l-1 sponsorship",
-        "no tn visa",
-        "no e3 visa",
-        "no o1 visa",
-        "no j1 sponsorship",
-        "no f1 sponsorship",
-        "all candidates must have work authorization",
-        "authorization to work in us is required",
-        "must be legally authorized to work in the united states",
-        "we cannot sponsor work visas at this time",
-        "unable to provide visa sponsorship",
-        "not eligible for work visa sponsorship",
-        "this role does not qualify for visa sponsorship",
-        "position ineligible for any visa sponsorship",
-        "no exceptions for work authorization",
-        "strictly no visa sponsorship",
-        "absolutely no sponsorship",
-        "sponsorship is not an option",
-        "visa sponsorship explicitly not available",
-        "no immigration or work visa",
-        "not provide employment sponsorship",
-        "does not intend to hire experienced or entry level job seekers who will need, now or in the future, Entegris sponsorship through H-1B",
-        "unable to provide work visa sponsorship",
-        "not eligible for immigration sponsorship",
-        "visa sponsorship provided no",
-        "h-1b lottery",
-        "visa sponsorship is unavailable",
-        "who need sponsorship for work authorization now or in the future, are not eligible for hire",
-        "not eligible for work authorization sponsorship",
-        "does not provide work visa sponsorship",
-        "does not provide immigration-related sponsorship",
-        "do not apply if you require visa sponsorship",
-        "this role is not a sponsorship eligible role",
-        "work lawfully in the u.s.",
-        "applicants must have a valid u.s. work authorization",
-        "not eligible for immigration sponsorship",
-        "we do not provide immigration sponsorship"
-    ]
-    # First check for negative indicators
-    for neg_keyword in negative_keywords:
-        if neg_keyword in text_lower:
-            return "No"
+Your task:
 
-    # Then check for positive indicators
-    for keyword in visa_keywords:
-        if keyword in text_lower:
-            return "Yes"
+- Evaluate each job description in the provided JSON array.
 
+- Determine if the employer is likely to sponsor a work visa (e.g., H-1B, TN, Skilled Worker, etc.).
+
+- Return a structured JSON array following the exact schema below.
+
+- Do not include explanations, reasoning, or extra text — output valid JSON only.
+
+Input (JSON array of job details):
+
+""" + json.dumps(job_details) + """
+
+Output JSON schema:
+
+[
+  {"jobId": "string", "sponsorship": "Yes" | "No"}
+]
+
+Rules:
+
+1. "Yes" if the job description mentions visa sponsorship, work authorization support, or eligibility for international candidates.
+
+2. "No" if the job explicitly requires existing work authorization, citizenship, permanent residency, or does not mention sponsorship.
+
+3. Output must be **pure JSON** — no markdown, no extra keys, no commentary, and no line before or after the JSON array."""
+    
+    return prompt
+
+def call_bedrock_llm(bedrock_client, prompt, model_id=None):
+    """Invoke Bedrock model and parse strict JSON array.
+    
+    Attempts repair on second try. On failure, returns "No".
+    """
+    if model_id is None:
+        model_id = BEDROCK_MODEL_ID
+    
+    def _invoke(body_text: str):
+        """Invoke Bedrock and extract generated text from response."""
+        try:
+            response = bedrock_client.invoke_model(
+                modelId=model_id,
+                contentType="application/json",
+                accept="application/json",
+                body=body_text,
+            )
+            raw_response = response["body"].read().decode()
+            
+            # Attempt to normalize common Nova response formats
+            try:
+                wrapper = json.loads(raw_response)
+            except Exception as parse_err:
+                return raw_response, ""
+            
+            generated = ""
+            if isinstance(wrapper, dict):
+                if "results" in wrapper and wrapper["results"]:
+                    generated = wrapper["results"][0].get("outputText", "")
+                elif "output" in wrapper:
+                    out = wrapper["output"]
+                    if isinstance(out, dict):
+                        msg = out.get("message", {})
+                        content = msg.get("content", [])
+                        if content and isinstance(content, list):
+                            generated = content[0].get("text", "")
+                    else:
+                        generated = str(out)
+                elif "content" in wrapper:
+                    content = wrapper["content"]
+                    if isinstance(content, list) and content:
+                        generated = content[0].get("text", "")
+                elif "message" in wrapper:
+                    content = wrapper["message"].get("content", [])
+                    if content and isinstance(content, list):
+                        generated = content[0].get("text", "")
+            
+            if not generated:
+                # As a last resort, search for any nested text fields
+                def extract_text_recursive(obj):
+                    if isinstance(obj, str):
+                        return obj
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if any(tok in k.lower() for tok in ["text", "content", "output"]):
+                                res = extract_text_recursive(v)
+                                if res:
+                                    return res
+                        for v in obj.values():
+                            res = extract_text_recursive(v)
+                            if res:
+                                return res
+                    if isinstance(obj, list):
+                        for it in obj:
+                            res = extract_text_recursive(it)
+                            if res:
+                                return res
+                    return ""
+                generated = extract_text_recursive(wrapper)
+            
+            return raw_response, generated or ""
+        except Exception as e:
+            raise
+    
+    def _clean(text: str) -> str:
+        """Remove markdown code blocks and clean text."""
+        t = text.strip()
+        if t.startswith("```"):
+            t = re.sub(r"^```[a-zA-Z0-9]*", "", t).rstrip("`")
+        return t.strip()
+    
+    def _parse_array(text: str):
+        """Parse JSON array from text, with regex fallback."""
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+        # Try to extract JSON array using regex
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if m:
+            frag = m.group(0)
+            try:
+                return json.loads(frag)
+            except Exception:
+                return None
+        return None
+    
+    # Base request for Nova models (primary format)
+    # Note: Nova models don't support "system" role, so prepend system instruction to user message
+    full_prompt = SYSTEM_INSTRUCTION + "\n\n" + prompt
+    base_request = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"text": full_prompt}]
+            }
+        ],
+        "inferenceConfig": {
+            "maxTokens": 4096,
+            "temperature": 0.1,
+            "topP": 0.9
+        }
+    }
+    
+    attempts = 2
+    last = ""
+    
+    for i in range(attempts):
+        body = base_request
+        if i == 1:
+            # Repair prompt on second attempt
+            repair = "Your previous response was not valid pure JSON. Return ONLY a JSON array now. No prose. If no data, return [].\n\n"
+            repair_prompt = SYSTEM_INSTRUCTION + "\n\n" + repair + prompt
+            body = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"text": repair_prompt}]
+                    }
+                ],
+                "inferenceConfig": base_request["inferenceConfig"]
+            }
+        
+        body_text = json.dumps(body)
+        
+        try:
+            _, out = _invoke(body_text)
+            out = _clean(out)
+            
+            if not out:
+                continue
+            
+            parsed = _parse_array(out)
+            if isinstance(parsed, list):
+                # Extract sponsorship from first item
+                if len(parsed) > 0:
+                    sponsorship = parsed[0].get("sponsorship", "No")
+                    # Normalize to Yes/No
+                    if sponsorship.lower() in ["yes", "y"]:
+                        return "Yes"
+                    else:
+                        return "No"
+                else:
+                    # Empty array
+                    return "No"
+
+            last = out
+        except Exception as e:
+            if i == attempts - 1:
+                return "No"
+            continue
+    
+    # All attempts failed
     return "No"
+
+def detect_visa_sponsorship(row):
+    """Detect visa sponsorship using AWS Bedrock LLM."""
+    # Extract job information from row
+    job_id = str(row.get("title", "") + "_" + str(row.get("company", "")) + "_" + str(row.get("location", "")))[:100]
+    title = row.get("title", "")
+    description = row.get("description", "")
+    
+    # Check if we have any text to analyze
+    if pd.isna(title) and pd.isna(description):
+        return "No"
+    
+    prompt = create_visa_detection_prompt(job_id, title, description)
+    
+    if prompt is None:
+        return "No"
+    
+    try:
+        result = call_bedrock_llm(bedrock_client, prompt)
+        return result
+    except Exception as e:
+        return "No"
 
 
 def add_visa_sponsorship_column(df):
     """
-    Add visa sponsorship detection to the dataframe
+    Add visa sponsorship detection to the dataframe using AWS Bedrock
     """
-    print("Analyzing jobs for visa sponsorship...")
+    print("Analyzing jobs for visa sponsorship using AWS Bedrock...")
+    print(f"Using model: {BEDROCK_MODEL_ID}")
+    print(f"Region: {AWS_REGION}")
 
-    # Combine title and description for analysis
-    df["combined_text"] = (
-        df["title"].fillna("") + " " + df.get("description", "").fillna("")
-    )
+    total_count = len(df)
+    print(f"Processing {total_count:,} jobs...")
 
-    # Apply visa sponsorship detection
-    df["sponsored_job"] = df["combined_text"].apply(detect_visa_sponsorship)
-
-    # Remove the temporary combined_text column
-    df = df.drop("combined_text", axis=1)
+    # Apply visa sponsorship detection to each row
+    df["sponsored_job"] = df.apply(detect_visa_sponsorship, axis=1)
 
     # Count sponsored vs non-sponsored jobs
     sponsored_count = (df["sponsored_job"] == "Yes").sum()
-    total_count = len(df)
 
     print("Visa sponsorship analysis complete:")
     print(f"  - Total jobs: {total_count}")
