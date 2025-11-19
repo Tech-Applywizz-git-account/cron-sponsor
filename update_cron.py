@@ -314,7 +314,7 @@ def call_bedrock_llm(bedrock_client, prompt, model_id=None):
                 else:
                     # Empty array
                     return "No"
-
+            
             last = out
         except Exception as e:
             if i == attempts - 1:
@@ -351,12 +351,9 @@ def add_visa_sponsorship_column(df):
     """
     Add visa sponsorship detection to the dataframe using AWS Bedrock
     """
-    print("Analyzing jobs for visa sponsorship using AWS Bedrock...")
-    print(f"Using model: {BEDROCK_MODEL_ID}")
-    print(f"Region: {AWS_REGION}")
+    print("Analyzing jobs for visa sponsorship...")
 
     total_count = len(df)
-    print(f"Processing {total_count:,} jobs...")
 
     # Apply visa sponsorship detection to each row
     df["sponsored_job"] = df.apply(detect_visa_sponsorship, axis=1)
@@ -385,14 +382,15 @@ except Exception as e:
 # Add visa sponsorship detection
 df = add_visa_sponsorship_column(df)
 
-df_sponsored = df[df["sponsored_job"] == "Yes"]
+# Use .copy() to avoid SettingWithCopyWarning
+df_sponsored = df[df["sponsored_job"] == "Yes"].copy()
 
 print(df.columns)
 
-df_sponsored["upload_date"] = df["upload_date"].apply(
+df_sponsored["upload_date"] = df_sponsored["upload_date"].apply(
     lambda x: x.isoformat() if pd.notna(x) else None
 )
-df_sponsored["date_posted"] = df["date_posted"].apply(
+df_sponsored["date_posted"] = df_sponsored["date_posted"].apply(
     lambda x: x.isoformat() if pd.notna(x) else None
 )
 
