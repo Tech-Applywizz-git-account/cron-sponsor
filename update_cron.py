@@ -396,11 +396,38 @@ df_sponsored["date_posted"] = df_sponsored["date_posted"].apply(
 
 try:
     table_name = "job_jobrole_sponsored"
-    data_to_insert = df_sponsored.to_dict(orient="records")
-
-    # Convert Timestamp columns to ISO format strings
-    response = supabase.table(table_name).insert(data_to_insert).execute()
-    print(f"Insert response: {len(response.data)} rows inserted")
+    
+    # Check if there are any sponsored jobs to insert
+    if len(df_sponsored) == 0:
+        print("No sponsored jobs to insert.")
+    else:
+        # Convert to dict and handle NaN/None values
+        data_to_insert = df_sponsored.to_dict(orient="records")
+        
+        # Ensure we have data to insert
+        if not data_to_insert or len(data_to_insert) == 0:
+            print("No data to insert after conversion.")
+        else:
+            # Replace NaN/None values with None (Supabase-friendly)
+            for record in data_to_insert:
+                for key, value in record.items():
+                    if pd.isna(value):
+                        record[key] = None
+            
+            # Insert data in batches if needed (Supabase has limits)
+            batch_size = 1000
+            total_inserted = 0
+            
+            for i in range(0, len(data_to_insert), batch_size):
+                batch = data_to_insert[i:i + batch_size]
+                if batch:  # Ensure batch is not empty
+                    response = supabase.table(table_name).insert(batch).execute()
+                    total_inserted += len(response.data) if response.data else 0
+            
+            print(f"Insert response: {total_inserted} rows inserted")
 except Exception as e:
     print(f"Error inserting data to Supabase: {e}")
+    if len(df_sponsored) > 0:
+        print(f"Attempted to insert {len(df_sponsored)} rows")
+        print(f"Columns in dataframe: {list(df_sponsored.columns)}")
     exit()
