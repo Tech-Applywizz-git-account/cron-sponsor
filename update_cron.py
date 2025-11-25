@@ -127,35 +127,36 @@ def create_visa_detection_prompt(job_id, title, description):
         "description": job_text
     }]
     
-    prompt = """You are an expert job screening AI specialized in identifying whether a job listing explicitly or implicitly offers valid work visa sponsorship.
+    prompt = """You are an expert job screening AI specialized in identifying whether a job listing explicitly or implicitly offers valid work visa sponsorship in the United States.
 
 Your task:
 
 - Evaluate each job description in the provided JSON array.
-
-- Determine if the employer is likely to sponsor a work visa (e.g., H-1B, TN, Skilled Worker, etc.).
-
+- Determine if the employer is likely to sponsor a U.S. work visa (e.g., H-1B, TN, Skilled Worker, e.t.c.).
 - Return a structured JSON array following the exact schema below.
-
 - Do not include explanations, reasoning, or extra text — output valid JSON only.
 
 Input (JSON array of job details):
 
+```json
 """ + json.dumps(job_details) + """
-
 Output JSON schema:
 
 [
-  {"jobId": "string", "sponsorship": "Yes" | "No"}
+{"jobId": "string", "sponsorship": "Yes" | "No"}
 ]
 
 Rules:
 
-1. "Yes" if the job description mentions visa sponsorship, work authorization support, or eligibility for international candidates.
+- Return "Yes" if the job description explicitly states sponsorship (e.g., “we sponsor H-1B”, “visa sponsorship available”, “will sponsor work visa”).
+- Return "No" if the posting explicitly requires existing U.S. work authorization, U.S. citizenship, permanent residency, or states that sponsorship is not available.
+- Return "Yes" if the posting is ambiguous but still mentions anything related to international applicants, such as: “may consider international candidates”, 
+“open to international applicants”, “case-by-case visa consideration”, “global applicants welcome”, In all such cases, treat the job as sponsorship-friendly.
+- Return "No" only when the posting does not mention ANYTHING about: sponsorship, work authorization, international candidates, visa considerations, (i.e., complete silence means “No”)
+- If the job location is clearly outside the United States (e.g., London, Toronto, Bengaluru), return "No" unless the text explicitly says the employer sponsors U.S. work visas.
 
-2. "No" if the job explicitly requires existing work authorization, citizenship, permanent residency, or does not mention sponsorship.
-
-3. Output must be **pure JSON** — no markdown, no extra keys, no commentary, and no line before or after the JSON array."""
+Constraints:
+- Output must be pure JSON. No markdown, no commentary, no text before or after the JSON array."""
     
     return prompt
 
