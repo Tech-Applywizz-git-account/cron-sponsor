@@ -468,7 +468,8 @@ if len(sponsored_results) > 0:
                 "years_exp_required": original_row.get("years_exp_required") if pd.notna(original_row.get("years_exp_required")) else None,
                 "upload_date": original_row.get("upload_date").isoformat() if pd.notna(original_row.get("upload_date")) else None,
                 "sponsored_job": "Yes",
-                "country": "United States of America"
+                "country": "United States of America",
+                "jobId": job_id else None
             }
             sponsored_jobs_data.append(job_data)
     
