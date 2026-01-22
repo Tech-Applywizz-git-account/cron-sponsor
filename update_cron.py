@@ -469,7 +469,7 @@ if len(sponsored_results) > 0:
                 "upload_date": original_row.get("upload_date").isoformat() if pd.notna(original_row.get("upload_date")) else None,
                 "sponsored_job": "Yes",
                 "country": "United States of America",
-                "jobId": job_id else None
+                "jobId": job_id or None
             }
             sponsored_jobs_data.append(job_data)
     
