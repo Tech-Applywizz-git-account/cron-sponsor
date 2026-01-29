@@ -413,6 +413,21 @@ for idx, row in df.iterrows():
     
     print(f"Result: {sponsorship_result}")
     
+    # Update is_sponsored field in PostgreSQL if sponsorship detected
+    if sponsorship_result == "Yes":
+        try:
+            update_query = text("""
+                UPDATE karmafy_job 
+                SET is_sponsored = 'Yes' 
+                WHERE id = :job_id
+            """)
+            with engine.connect() as conn:
+                result = conn.execute(update_query, {"job_id": int(job_id)})
+                conn.commit()
+                print(f"✓ Updated is_sponsored = 'Yes' in PostgreSQL for job_id: {job_id}")
+        except Exception as e:
+            print(f"✗ Error updating is_sponsored in PostgreSQL for job_id {job_id}: {e}")
+    
     # Store result
     results.append({
         "job_id": job_id,
