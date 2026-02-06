@@ -372,6 +372,7 @@ LEFT JOIN "karmafy_jobrole" jr
 WHERE j."uploadDate" > '{max_upload_date_str}'
   AND j."uploadDate" <= CURRENT_TIMESTAMP
   AND (jr.name IS NULL OR jr.name NOT LIKE '% for %')
+  AND j.is_staffing = 'No'
 ORDER BY j."uploadDate" DESC;
 """
 
