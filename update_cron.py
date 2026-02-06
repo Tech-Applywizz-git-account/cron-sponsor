@@ -364,7 +364,8 @@ SELECT
     j.description,
     j."datePosted" AS date_posted,
     j."yearsExpRequired" AS years_exp_required,
-    j."uploadDate" AS upload_date
+    j."uploadDate" AS upload_date,
+    j.salary 
 FROM "karmafy_job" j
 LEFT JOIN "karmafy_jobrole" jr
        ON j."roleId"::bigint = jr.id
@@ -405,6 +406,7 @@ for idx, row in df.iterrows():
     print(f"Title: {title}")
     print(f"Company: {row.get('company', 'N/A')}")
     print(f"Location: {row.get('location', 'N/A')}")
+    print(f"Salary: {row.get('salary', 'N/A')}")
     print(f"Job ID: {job_id}")
     print(f"\nCalling LLM for visa sponsorship detection...")
     
@@ -484,7 +486,8 @@ if len(sponsored_results) > 0:
                 "upload_date": original_row.get("upload_date").isoformat() if pd.notna(original_row.get("upload_date")) else None,
                 "sponsored_job": "Yes",
                 "country": "United States of America",
-                "jobId": job_id or None
+                "jobId": job_id or None,
+                "salary": original_row.get("salary") if pd.notna(original_row.get("salary")) else None
             }
             sponsored_jobs_data.append(job_data)
     
