@@ -311,45 +311,17 @@ def detect_visa_sponsorship(row):
         print(f"Error calling LLM for job {job_id}: {e}")
         return "No"
 
-# Exception handling for fetching max upload date
-try:
-    response = (
-        supabase.table("job_jobrole_sponsored")
-        .select("upload_date")
-        .not_.is_("upload_date", None)
-        .order("upload_date", desc=True)
-        .limit(1)
-        .execute()
-    )
+# ✅ FIXED DATE (March 19, 2026)
+target_date = datetime(2026, 3, 19)
 
-    if not response.data:
-        raise ValueError("No data returned for max upload date.")
+start_date = target_date.replace(hour=0, minute=0, second=0)
+end_date = target_date.replace(hour=23, minute=59, second=59)
 
-    max_upload_date = response.data[0]["upload_date"]
-    print(f"Max upload date: {max_upload_date}")
+start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
+end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
+
+print(f"Processing jobs from {start_date_str} to {end_date_str}")
     
-    # Convert max_upload_date to datetime object
-    if isinstance(max_upload_date, str):
-        # Handle ISO format string (with or without timezone)
-        if 'T' in max_upload_date:
-            max_upload_date_dt = datetime.fromisoformat(max_upload_date.replace('Z', '+00:00'))
-        else:
-            max_upload_date_dt = datetime.fromisoformat(max_upload_date)
-    elif hasattr(max_upload_date, 'isoformat'):
-        max_upload_date_dt = max_upload_date
-    else:
-        max_upload_date_dt = datetime.fromisoformat(str(max_upload_date))
-    
-    # Calculate end date (max_upload_date + 1 day)
-    end_date_dt = max_upload_date_dt + timedelta(days=1)
-    
-    # Format dates for SQL query
-    max_upload_date_str = max_upload_date_dt.strftime('%Y-%m-%d %H:%M:%S')
-    end_date_str = end_date_dt.strftime('%Y-%m-%d %H:%M:%S')
-    
-except Exception as e:
-    print(f"Error fetching max upload date: {e}")
-    exit()  # Exit if fetching max upload date fails
 
 # Fetch a few jobs from the database for testing
 # Using the same query structure as update_cron.py, but with ORDER BY and LIMIT
@@ -370,8 +342,8 @@ SELECT
 FROM "karmafy_job" j
 LEFT JOIN "karmafy_jobrole" jr
        ON j."roleId"::bigint = jr.id
-WHERE j."uploadDate" > '{max_upload_date_str}'
-  AND j."uploadDate" <= CURRENT_TIMESTAMP
+WHERE j."uploadDate" >= '{start_date_str}'
+  AND j."uploadDate" <= '{end_date_str}'
   AND (jr.name IS NULL OR jr.name NOT LIKE '% for %')
   AND j.is_staffing = 'No'
 ORDER BY j."uploadDate" DESC;
