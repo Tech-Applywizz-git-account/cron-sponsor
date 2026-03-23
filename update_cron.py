@@ -365,7 +365,8 @@ SELECT
     j."datePosted" AS date_posted,
     j."yearsExpRequired" AS years_exp_required,
     j."uploadDate" AS upload_date,
-    j.salary 
+    j.salary,
+    j."applyType" AS apply_type
 FROM "karmafy_job" j
 LEFT JOIN "karmafy_jobrole" jr
        ON j."roleId"::bigint = jr.id
@@ -488,7 +489,8 @@ if len(sponsored_results) > 0:
                 "sponsored_job": "Yes",
                 "country": "United States of America",
                 "jobId": job_id or None,
-                "salary": original_row.get("salary") if pd.notna(original_row.get("salary")) else None
+                "salary": original_row.get("salary") if pd.notna(original_row.get("salary")) else None,
+                "apply_type": original_row.get("apply_type") if pd.notna(original_row.get("apply_type")) else None
             }
             sponsored_jobs_data.append(job_data)
     
