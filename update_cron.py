@@ -7,6 +7,7 @@ import boto3
 import json
 import re
 from datetime import datetime, timedelta
+import concurrent.futures  # Added for concurrency
 
 load_dotenv()
 
@@ -16,7 +17,6 @@ try:
     if not conn_str:
         raise ValueError("PSQL_KEY environment variable is missing.")
 
-    # Create SQLAlchemy engine
     engine = create_engine(conn_str)
     print("Successfully connected to PostgreSQL!")
 except Exception as e:
@@ -35,7 +35,7 @@ try:
     print("Successfully connected to Supabase!")
 except Exception as e:
     print(f"Error connecting to Supabase: {e}")
-    exit()  # Exit if connection to Supabase fails
+    exit()
 
 # AWS Bedrock Configuration
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -60,8 +60,9 @@ try:
     print(f"Successfully connected to AWS Bedrock! (Region: {AWS_REGION}, Model: {BEDROCK_MODEL_ID})")
 except Exception as e:
     print(f"Error connecting to AWS Bedrock: {e}")
-    exit()  # Exit if connection to AWS Bedrock fails
+    exit()
 
+# [Keep all helper functions unchanged: normalize_text, create_visa_detection_prompt, call_bedrock_llm, detect_visa_sponsorship]
 def normalize_text(x):
     """Normalize text for processing."""
     if pd.isna(x):
@@ -73,7 +74,6 @@ def normalize_text(x):
 
 def create_visa_detection_prompt(job_id, title, description):
     """Create a prompt for AWS Bedrock to determine visa sponsorship."""
-    # Combine all available text fields
     text_fields = [
         normalize_text(title),
         normalize_text(description)
@@ -83,7 +83,6 @@ def create_visa_detection_prompt(job_id, title, description):
     if not job_text.strip():
         return None
     
-    # Create job details JSON
     job_details = [{
         "jobId": job_id,
         "title": title if title else "N/A",
@@ -221,7 +220,6 @@ def call_bedrock_llm(bedrock_client, prompt, model_id=None):
         return None
     
     # Base request for Nova models (primary format)
-    # Note: Nova models don't support "system" role, so prepend system instruction to user message
     full_prompt = SYSTEM_INSTRUCTION + "\n\n" + prompt
     base_request = {
         "messages": [
@@ -267,16 +265,13 @@ def call_bedrock_llm(bedrock_client, prompt, model_id=None):
             
             parsed = _parse_array(out)
             if isinstance(parsed, list):
-                # Extract sponsorship from first item
                 if len(parsed) > 0:
                     sponsorship = parsed[0].get("sponsorship", "No")
-                    # Normalize to Yes/No
                     if sponsorship.lower() in ["yes", "y"]:
                         return "Yes"
                     else:
                         return "No"
                 else:
-                    # Empty array
                     return "No"
 
             last = out
@@ -285,17 +280,14 @@ def call_bedrock_llm(bedrock_client, prompt, model_id=None):
                 return "No"
             continue
     
-    # All attempts failed
     return "No"
 
 def detect_visa_sponsorship(row):
     """Detect visa sponsorship using AWS Bedrock LLM."""
-    # Extract job information from row
     job_id = str(row.get("job_id", ""))
     title = row.get("title", "")
     description = row.get("description", "")
     
-    # Check if we have any text to analyze
     if pd.isna(title) and pd.isna(description):
         return "No"
     
@@ -311,7 +303,7 @@ def detect_visa_sponsorship(row):
         print(f"Error calling LLM for job {job_id}: {e}")
         return "No"
 
-# ✅ FIXED DATE (March 19, 2026)
+# Fixed date
 target_date = datetime(2026, 3, 28)
 
 start_date = target_date.replace(hour=0, minute=0, second=0)
@@ -321,10 +313,8 @@ start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
 end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
 
 print(f"Processing jobs from {start_date_str} to {end_date_str}")
-    
 
-# Fetch a few jobs from the database for testing
-# Using the same query structure as update_cron.py, but with ORDER BY and LIMIT
+# Fetch jobs
 sql_query = f"""
 SELECT 
     j.id AS job_id,
@@ -351,7 +341,6 @@ ORDER BY j."uploadDate" DESC;
 
 try:
     print("Fetching data from the psql database...")
-    # Use text() to properly handle the SQL query
     df = pd.read_sql(text(sql_query), engine)
     print(f"Fetched {len(df):,} rows from PostgreSQL database.\n")
 except Exception as e:
@@ -360,146 +349,138 @@ except Exception as e:
     traceback.print_exc()
     exit()
 
-# Process jobs with LLM calls
+# Process jobs concurrently
 print("=" * 80)
-print("PROCESSING JOBS WITH LLM")
+print("PROCESSING JOBS WITH LLM (concurrent)")
 print("=" * 80)
 print()
 
 results = []
+sponsored_job_ids = []
 
-for idx, row in df.iterrows():
-    # Use job ID directly from database
+def process_job(row):
+    """Process a single job: call LLM and return result with original row."""
     job_id = str(row.get("job_id", ""))
-    title = row.get("title", "")
-    description = row.get("description", "")
-    
-    print(f"\n{'='*80}")
-    print(f"JOB #{idx + 1} / {len(df)}")
-    print(f"{'='*80}")
-    print(f"Title: {title}")
-    print(f"Company: {row.get('company', 'N/A')}")
-    print(f"Location: {row.get('location', 'N/A')}")
-    print(f"Salary: {row.get('salary', 'N/A')}")
-    print(f"Job ID: {job_id}")
-    print(f"\nCalling LLM for visa sponsorship detection...")
-    
-    # Call LLM to detect visa sponsorship
     sponsorship_result = detect_visa_sponsorship(row)
-    
-    print(f"Result: {sponsorship_result}")
-    
-    # Update is_sponsored field in PostgreSQL if sponsorship detected
-    if sponsorship_result == "Yes":
-        try:
-            update_query = text("""
-                UPDATE karmafy_job 
-                SET is_sponsored = 'Yes' 
-                WHERE id = :job_id
-            """)
-            with engine.connect() as conn:
-                result = conn.execute(update_query, {"job_id": int(job_id)})
-                conn.commit()
-                print(f"✓ Updated is_sponsored = 'Yes' in PostgreSQL for job_id: {job_id}")
-        except Exception as e:
-            print(f"✗ Error updating is_sponsored in PostgreSQL for job_id {job_id}: {e}")
-    
-    # Store result
-    results.append({
+    return {
         "job_id": job_id,
-        "title": title,
-        "company": row.get('company', 'N/A'),
-        "location": row.get('location', 'N/A'),
-        "sponsorship": sponsorship_result
-    })
-    
-    print(f"{'-'*80}")
+        "title": row.get("title", ""),
+        "company": row.get("company", "N/A"),
+        "location": row.get("location", "N/A"),
+        "sponsorship": sponsorship_result,
+        "original_row": row  # keep for later insertion
+    }
+
+# Use ThreadPoolExecutor to parallelize LLM calls
+MAX_WORKERS = 10  # Adjust based on your Bedrock limits
+with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    # Submit all tasks
+    future_to_idx = {executor.submit(process_job, row): idx for idx, row in df.iterrows()}
+    completed = 0
+    total = len(future_to_idx)
+    for future in concurrent.futures.as_completed(future_to_idx):
+        idx = future_to_idx[future]
+        completed += 1
+        try:
+            result = future.result()
+            results.append(result)
+            if result["sponsorship"] == "Yes":
+                sponsored_job_ids.append(int(result["job_id"]))
+            # Print progress (optional, may interleave)
+            print(f"[{completed}/{total}] {result['job_id']}: {result['title'][:60]} -> {result['sponsorship']}")
+        except Exception as e:
+            print(f"Error processing job index {idx}: {e}")
+            # Add a dummy result to keep count consistent
+            results.append({
+                "job_id": str(df.at[idx, "job_id"]),
+                "sponsorship": "No",
+                "original_row": df.iloc[idx]
+            })
 
 print("\n" + "=" * 80)
 print("LLM PROCESSING COMPLETE")
 print("=" * 80)
-print(f"\nTotal jobs processed: {len(df)}")
-print(f"\nResults Summary:")
-print("-" * 80)
+
+# Bulk update PostgreSQL is_sponsored
+if sponsored_job_ids:
+    try:
+        update_query = text("""
+            UPDATE karmafy_job 
+            SET is_sponsored = 'Yes' 
+            WHERE id = ANY(:job_ids)
+        """)
+        with engine.connect() as conn:
+            conn.execute(update_query, {"job_ids": sponsored_job_ids})
+            conn.commit()
+        print(f"✓ Updated is_sponsored = 'Yes' for {len(sponsored_job_ids)} jobs")
+    except Exception as e:
+        print(f"✗ Error updating is_sponsored in PostgreSQL: {e}")
+else:
+    print("No jobs to update as sponsored.")
+
+# Summary
 sponsored_count = sum(1 for r in results if r["sponsorship"] == "Yes")
+print(f"\nTotal jobs processed: {len(results)}")
 print(f"Sponsored jobs: {sponsored_count}")
 print(f"Non-sponsored jobs: {len(results) - sponsored_count}")
-print(f"\nDetailed Results (Sponsored Jobs Only):")
-print("-" * 80)
+print("\nDetailed Results (Sponsored Jobs Only):")
 for result in results:
     if result["sponsorship"] == "Yes":
         print(f"Job ID: {result['job_id']} | {result['title']} | Sponsorship: {result['sponsorship']}")
 
-# Prepare sponsored jobs for Supabase insertion
+# Prepare sponsored jobs for Supabase
 sponsored_results = [r for r in results if r["sponsorship"] == "Yes"]
 
-if len(sponsored_results) > 0:
+if sponsored_results:
     print("\n" + "=" * 80)
     print("PREPARING SPONSORED JOBS FOR SUPABASE INSERTION")
     print("=" * 80)
     
-    # Create a dataframe from sponsored results and merge with original df data
     sponsored_jobs_data = []
     for result in sponsored_results:
-        # Find the corresponding row in the original dataframe
-        job_id = result["job_id"]
-        original_row = df[df["job_id"].astype(str) == str(job_id)].iloc[0] if len(df[df["job_id"].astype(str) == str(job_id)]) > 0 else None
-        
-        if original_row is not None:
-            # Prepare data for Supabase (excluding job_id as it's auto-incremental)
-            # Match the exact column structure from the example
-            job_data = {
-                "job_role_name": original_row.get("job_role_name") if pd.notna(original_row.get("job_role_name")) else None,
-                "title": original_row.get("title") if pd.notna(original_row.get("title")) else None,
-                "company": original_row.get("company") if pd.notna(original_row.get("company")) else None,
-                "location": original_row.get("location") if pd.notna(original_row.get("location")) else None,
-                "url": original_row.get("url") if pd.notna(original_row.get("url")) else None,
-                "description": original_row.get("description") if pd.notna(original_row.get("description")) else None,
-                "date_posted": original_row.get("date_posted").isoformat() if pd.notna(original_row.get("date_posted")) else None,
-                "years_exp_required": original_row.get("years_exp_required") if pd.notna(original_row.get("years_exp_required")) else None,
-                "upload_date": original_row.get("upload_date").isoformat() if pd.notna(original_row.get("upload_date")) else None,
-                "sponsored_job": "Yes",
-                "country": "United States of America",
-                "jobId": job_id or None,
-                "salary": original_row.get("salary") if pd.notna(original_row.get("salary")) else None,
-                "apply_type": original_row.get("apply_type") if pd.notna(original_row.get("apply_type")) else None
-            }
-            sponsored_jobs_data.append(job_data)
+        original_row = result["original_row"]
+        job_data = {
+            "job_role_name": original_row.get("job_role_name") if pd.notna(original_row.get("job_role_name")) else None,
+            "title": original_row.get("title") if pd.notna(original_row.get("title")) else None,
+            "company": original_row.get("company") if pd.notna(original_row.get("company")) else None,
+            "location": original_row.get("location") if pd.notna(original_row.get("location")) else None,
+            "url": original_row.get("url") if pd.notna(original_row.get("url")) else None,
+            "description": original_row.get("description") if pd.notna(original_row.get("description")) else None,
+            "date_posted": original_row.get("date_posted").isoformat() if pd.notna(original_row.get("date_posted")) else None,
+            "years_exp_required": original_row.get("years_exp_required") if pd.notna(original_row.get("years_exp_required")) else None,
+            "upload_date": original_row.get("upload_date").isoformat() if pd.notna(original_row.get("upload_date")) else None,
+            "sponsored_job": "Yes",
+            "country": "United States of America",
+            "jobId": result["job_id"] or None,
+            "salary": original_row.get("salary") if pd.notna(original_row.get("salary")) else None,
+            "apply_type": original_row.get("apply_type") if pd.notna(original_row.get("apply_type")) else None
+        }
+        # Replace NaN/None values with None
+        for key, value in job_data.items():
+            if pd.isna(value):
+                job_data[key] = None
+        sponsored_jobs_data.append(job_data)
     
-    if len(sponsored_jobs_data) > 0:
-        # Replace NaN/None values with None (Supabase-friendly)
-        for record in sponsored_jobs_data:
-            for key, value in record.items():
-                if pd.isna(value):
-                    record[key] = None
-        
-        # Insert data in batches if needed (Supabase has limits)
+    if sponsored_jobs_data:
         table_name = "job_jobrole_sponsored"
         batch_size = 1000
         total_inserted = 0
         
-        print(f"\nInserting {len(sponsored_jobs_data)} sponsored jobs into Supabase...")
-        
+        print(f"Inserting {len(sponsored_jobs_data)} sponsored jobs into Supabase...")
         try:
             for i in range(0, len(sponsored_jobs_data), batch_size):
-                batch = sponsored_jobs_data[i:i + batch_size]
-                if batch:  # Ensure batch is not empty
+                batch = sponsored_jobs_data[i:i+batch_size]
+                if batch:
                     response = supabase.table(table_name).insert(batch).execute()
                     total_inserted += len(response.data) if response.data else 0
                     print(f"Inserted batch {i // batch_size + 1}: {len(batch)} rows")
-            
-            print(f"\n{'='*80}")
-            print(f"SUPABASE INSERTION COMPLETE")
-            print(f"{'='*80}")
-            print(f"Total rows inserted: {total_inserted}")
+            print(f"\nSUPABASE INSERTION COMPLETE: {total_inserted} rows inserted")
         except Exception as e:
-            print(f"\nError inserting data to Supabase: {e}")
-            print(f"Attempted to insert {len(sponsored_jobs_data)} rows")
-            print(f"Columns in data: {list(sponsored_jobs_data[0].keys()) if sponsored_jobs_data else 'N/A'}")
+            print(f"Error inserting data to Supabase: {e}")
             import traceback
             traceback.print_exc()
     else:
         print("No sponsored jobs data prepared for insertion.")
 else:
-    print("\nNo sponsored jobs to insert into Supabase.")
+    print("No sponsored jobs to insert into Supabase.")
 
