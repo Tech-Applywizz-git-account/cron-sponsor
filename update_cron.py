@@ -304,7 +304,7 @@ def detect_visa_sponsorship(row):
         return "No"
 
 # Fixed date
-target_date = datetime(2026, 3, 29)
+target_date = datetime(2026, 3, 30)
 
 start_date = target_date.replace(hour=0, minute=0, second=0)
 end_date = target_date.replace(hour=23, minute=59, second=59)
