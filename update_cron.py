@@ -303,11 +303,12 @@ def detect_visa_sponsorship(row):
         print(f"Error calling LLM for job {job_id}: {e}")
         return "No"
 
-# Fixed date
-target_date = datetime(2026, 3, 30)
-
-start_date = target_date.replace(hour=0, minute=0, second=0)
-end_date = target_date.replace(hour=23, minute=59, second=59)
+# ========== MODIFIED SECTION: Dynamic date for daily run ==========
+# Use current date instead of fixed date
+today = datetime.now().date()
+start_date = datetime.combine(today, datetime.min.time())
+end_date = datetime.combine(today, datetime.max.time())
+# ==================================================================
 
 start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
 end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
@@ -483,4 +484,3 @@ if sponsored_results:
         print("No sponsored jobs data prepared for insertion.")
 else:
     print("No sponsored jobs to insert into Supabase.")
-
